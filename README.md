@@ -173,9 +173,6 @@ Ahora vamos a subir un poco el nivel, pero antes de nada, vamos a simular la det
 #### Mini script de debug
 Con propósitos de debuggear en casos como este o como en el modo follow cuando tambien publicabamos mensajes constantemente, podemos usar el script de message_checker.py cambiando los datos adaptandolo al tipo de mensaje que quieras.
 
-// TODO: 1. Conseguir entender la arquitectura mejor y como hacer que el script de debuggeo funcione
-// TODO: 2. Conseguir un script exitoso de evasión de objetos automática
-// TODO: Después de ello, continuar con gazebo
 
 
 
