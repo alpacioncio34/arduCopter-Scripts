@@ -60,6 +60,7 @@ def change_mode(master, mode_name):
     )
     print("Mode changed to", mode_name)
     return wait_for_ack(master, mavutil.mavlink.MAV_CMD_DO_SET_MODE)
+
 # Arm the motors
 def arm_motors(master):
     print("Armando motores...")
@@ -77,6 +78,7 @@ def arm_motors(master):
 
 
 def takeoff(master, height):
+    # TODO: Change to LOITER or BRAKE if fails
     print(f"Taking off to {height} meters...")
     master.mav.command_long_send(
         master.target_system,
@@ -120,6 +122,22 @@ def go_to_local(master, x, y, z):
         0,  # Yaw (not used) 
         0   # Yaw rate (not used)
     ))
+
+def stop_command():
+    master = connect_to_drone()
+    wait_for_heartbeat(master)
+
+    mode_id = master.mode_mapping()["LOITER"]
+    master.mav.command_long_send(
+        master.target_system,
+        master.target_component,
+        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+        0,
+        mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+        mode_id,
+        0, 0, 0, 0, 0
+    )
+    return wait_for_ack(master, mavutil.mavlink.MAV_CMD_DO_SET_MODE)
 
 def go_to(master, lat, lon, altitude=10):
     # Scaling the latitude and longitude to the required format (degrees * 1e7)
