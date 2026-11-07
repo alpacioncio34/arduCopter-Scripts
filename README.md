@@ -173,6 +173,9 @@ Ahora vamos a subir un poco el nivel, pero antes de nada, vamos a simular la det
 #### Mini script de debug
 Con propósitos de debuggear en casos como este o como en el modo follow cuando tambien publicabamos mensajes constantemente, podemos usar el script de message_checker.py cambiando los datos adaptandolo al tipo de mensaje que quieras.
 
+## NEXT TODOS
+- Aprender y explicar como funciona el debuggeo de logs, ver que ha pasado en runs anteriores, buscar el log correcto y leerlo correctamente con mavlogdump
+
 
 
 
