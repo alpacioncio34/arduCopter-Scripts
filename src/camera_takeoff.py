@@ -1,78 +1,118 @@
 """
-Detecta una mano con la cámara (MediaPipe) y escribe un mensaje por consola
-cuando hay un único dedo (el índice) apuntando hacia arriba.
+Hand-gesture drone control using the webcam (MediaPipe Hand Landmarker).
 
-Instalación:
+Behaviour
+---------
+* When exactly ONE finger (the index) is extended and pointing up, and the
+  gesture has been held for a few consecutive frames, the drone takes off.
+* When the gesture disappears (held for a few consecutive frames), the drone
+  is switched to LOITER mode (stop_command).
+
+Drone commands are slow and blocking (MAVLink connection, heartbeat, sleeps,
+ACK waits). To keep the video window responsive they run on a single
+background worker thread. Using ONE worker also guarantees that "takeoff" and
+"stop" never run at the same time and always execute in the order requested.
+
+Install:
     pip install opencv-python mediapipe
 
-Salir: pulsa 'q' en la ventana de vídeo.
+Quit: press 'q' in the video window.
 """
 
 import math
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from drone_actions import stop_command
 import subprocess
 import sys
+
 import cv2
 import mediapipe as mp
-from mediapipe.tasks.python import BaseOptions
-from mediapipe.tasks.python import vision
+from mediapipe.tasks.python import BaseOptions, vision
 from mediapipe.tasks.python.vision import drawing_utils
 
-# Modelo de MediaPipe Tasks (la antigua API mp.solutions ya no existe).
-# Descarga: https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
-MODEL_PATH = Path(__file__).with_name("hand_landmarker.task")
-TAKEOFF_SCRIPT = Path(__file__).with_name("drone_takeoff_test.py")
-HAND_CONNECTIONS =vision.HandLandmarksConnections.HAND_CONNECTIONS
+from drone_actions import stop_command, takeoff_wrapper
 
-# Índices de landmarks de MediaPipe
-WRIST = 0
+# --------------------------------------------------------------------------- #
+# Configuration
+# --------------------------------------------------------------------------- #
+
+# MediaPipe Tasks model (the old mp.solutions API no longer exists).
+# Download: https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+MODEL_PATH = Path(__file__).with_name("hand_landmarker.task")
+HAND_CONNECTIONS = vision.HandLandmarksConnections.HAND_CONNECTIONS
+
+TAKEOFF_HEIGHT_M = 40  # Target altitude passed to takeoff_wrapper
+
+# Debounce: how many consecutive frames must agree before we act.
+# This avoids triggering the drone because of a single misdetected frame
+# and avoids rapid takeoff/stop toggling when detection flickers.
+# At ~30 FPS, 10 frames is roughly 0.3 s.
+FRAMES_TO_CONFIRM = 10
+
+# --------------------------------------------------------------------------- #
+# MediaPipe landmark indices
+# https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker
+# --------------------------------------------------------------------------- #
 THUMB_IP, THUMB_TIP = 3, 4
 INDEX_MCP, INDEX_PIP, INDEX_TIP = 5, 6, 8
 MIDDLE_PIP, MIDDLE_TIP = 10, 12
 RING_PIP, RING_TIP = 14, 16
 PINKY_MCP, PINKY_PIP, PINKY_TIP = 17, 18, 20
+FILE_PATH = Path(__file__).with_name("debud_test.py")
 
 
 def dist(a, b):
+    """2D distance between two normalized landmarks."""
     return math.hypot(a.x - b.x, a.y - b.y)
 
 
-def solo_indice_arriba(lm):
-    """True si solo el índice está extendido y apuntando hacia arriba."""
-    # En imagen, "arriba" = y menor.
-    indice_extendido = lm[INDEX_TIP].y < lm[INDEX_PIP].y < lm[INDEX_MCP].y
+def only_index_up(lm):
+    """Return True if only the index finger is extended and pointing up."""
+    # In image coordinates y grows downwards, so "up" means a smaller y.
+    # The index is extended when tip, PIP and MCP are stacked going upwards.
+    index_extended = lm[INDEX_TIP].y < lm[INDEX_PIP].y < lm[INDEX_MCP].y
 
-    # Los otros tres dedos deben estar doblados (punta más abajo que su PIP)
-    medio_doblado = lm[MIDDLE_TIP].y > lm[MIDDLE_PIP].y
-    anular_doblado = lm[RING_TIP].y > lm[RING_PIP].y
-    menique_doblado = lm[PINKY_TIP].y > lm[PINKY_PIP].y
+    # The other three fingers must be folded: tip below its PIP joint.
+    middle_folded = lm[MIDDLE_TIP].y > lm[MIDDLE_PIP].y
+    ring_folded = lm[RING_TIP].y > lm[RING_PIP].y
+    pinky_folded = lm[PINKY_TIP].y > lm[PINKY_PIP].y
 
-    # Pulgar doblado: su punta no está más lejos del meñique que su articulación
-    # (así funciona sin importar si es mano izquierda o derecha)
-    pulgar_doblado = dist(lm[THUMB_TIP], lm[PINKY_MCP]) <= dist(lm[THUMB_IP], lm[PINKY_MCP])
+    # Thumb folded: its tip is not farther from the pinky base than its IP
+    # joint. Using distance (instead of x position) makes this work for both
+    # left and right hands.
+    thumb_folded = dist(lm[THUMB_TIP], lm[PINKY_MCP]) <= dist(lm[THUMB_IP], lm[PINKY_MCP])
 
     return (
-        indice_extendido
-        and medio_doblado
-        and anular_doblado
-        and menique_doblado
-        and pulgar_doblado
+        index_extended
+        and middle_folded
+        and ring_folded
+        and pinky_folded
+        and thumb_folded
     )
+
+
+def run_takeoff():
+    takeoff_wrapper(height=TAKEOFF_HEIGHT_M)
+
+
+def run_stop():
+    """Runs on the worker thread. stop_command is a regular blocking function."""
+    try:
+        stop_command()
+    except Exception as e:
+        print(f"Stop command failed: {e}")
 
 
 def main():
     if not MODEL_PATH.exists():
-        print(f"Falta el modelo: {MODEL_PATH}")
+        print(f"Missing model file: {MODEL_PATH}")
         return
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        print("No se pudo abrir la cámara.")
+        print("Could not open the camera.")
         return
-
-    ya_detectado = False  # para no imprimir en cada frame
-    takeoff_proc = None
 
     options = vision.HandLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=str(MODEL_PATH)),
@@ -82,47 +122,67 @@ def main():
         min_tracking_confidence=0.6,
     )
 
-    with vision.HandLandmarker.create_from_options(options) as hands:
-        t_ms = 0
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
+    # Single worker: drone commands run one at a time, in order.
+    # executor = ThreadPoolExecutor(max_workers=1)
 
-            frame = cv2.flip(frame, 1)  # efecto espejo
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            imagen = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            t_ms += 33  # timestamp estrictamente creciente
-            resultado = hands.detect_for_video(imagen, t_ms)
+    gesture_active = False  # Confirmed (debounced) state of the gesture
+    streak = 0              # Consecutive frames that disagree with gesture_active
+    start = time.monotonic()
+    last_ts_ms = -1
 
-            detectado = False
-            for landmarks in resultado.hand_landmarks:
-                drawing_utils.draw_landmarks(frame, landmarks, HAND_CONNECTIONS)
-                if solo_indice_arriba(landmarks):
-                    detectado = True
+    try:
+        with vision.HandLandmarker.create_from_options(options) as hands:
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
 
-            if not detectado and ya_detectado:
-                if takeoff_proc is not None:
-                    stop_command()
-                    takeoff_proc.kill()
-            
-            if detectado and not ya_detectado:
-                print("☝️  Un solo dedo apuntando hacia arriba")
-                #if takeoff_proc is None:  # solo se despega una vez
-                print("Lanzando despegue...")
-                takeoff_proc = subprocess.Popen([sys.executable, str(TAKEOFF_SCRIPT)])
-            ya_detectado = detectado
+                frame = cv2.flip(frame, 1)  # mirror effect
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-            if detectado:
-                cv2.putText(frame, "Taking off", (20, 50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+                # VIDEO mode requires strictly increasing timestamps (ms).
+                ts_ms = max(int((time.monotonic() - start) * 1000), last_ts_ms + 1)
+                last_ts_ms = ts_ms
+                result = hands.detect_for_video(image, ts_ms)
 
-            cv2.imshow("Hand tracking", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+                # Raw detection for THIS frame.
+                detected = False
+                for landmarks in result.hand_landmarks:
+                    drawing_utils.draw_landmarks(frame, landmarks, HAND_CONNECTIONS)
+                    if only_index_up(landmarks):
+                        detected = True
 
-    cap.release()
-    cv2.destroyAllWindows()
+                # Debounce: only change the confirmed state after
+                # FRAMES_TO_CONFIRM consecutive frames that disagree with it.
+                if detected != gesture_active:
+                    streak += 1
+                    if streak >= FRAMES_TO_CONFIRM:
+                        gesture_active = detected
+                        streak = 0
+                        if gesture_active:
+                            print("Gesture confirmed -> taking off")
+                            # executor.submit(run_takeoff)
+                            subprocess.Popen([sys.executable,str(FILE_PATH)])
+                        else:
+                            print("Gesture lost -> stopping (LOITER)")
+                            run_stop()
+                else:
+                    streak = 0
+
+                if gesture_active:
+                    cv2.putText(frame, "Taking off", (20, 50),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+
+                cv2.imshow("Hand tracking", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+    finally:
+        # Always release the camera, even if something above raised.
+        cap.release()
+        cv2.destroyAllWindows()
+        # Let any in-flight drone command finish before exiting.
+        # executor.shutdown(wait=True)
 
 
 if __name__ == "__main__":
