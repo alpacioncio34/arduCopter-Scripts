@@ -61,6 +61,14 @@ def change_mode(master, mode_name):
     print("Mode changed to", mode_name)
     return wait_for_ack(master, mavutil.mavlink.MAV_CMD_DO_SET_MODE)
 
+def takeoff_wrapper(height):
+    # TODO: Add a safety layer before arming the motors, they need to wait for certain confirmation
+    # I would do it inside the arm motors, make that function wait for the confirmation perhaps using the confirmation ACK before taking off
+    master = connect_to_drone()
+    wait_for_heartbeat(master)
+    arm_motors(master)
+    takeoff(master,height=height)
+
 # Arm the motors
 def arm_motors(master):
     print("Armando motores...")
