@@ -187,6 +187,20 @@ def set_speed(master,speed):
         0, 0, 0, 0
     )
 
+def set_speed_local(master,vx,vy,vz):
+	# TODO: Add parameters for direction and speed value
+    master.mav.set_position_target_local_ned_send(
+        0,                          # time_boot_ms (int)
+        master.target_system,       # target_system (int)
+        master.target_component,    # target_component (int)
+        mavutil.mavlink.MAV_FRAME_LOCAL_NED, # coordinate_frame (int)
+        0b0000111111000111,         # type_mask (int - solo velocidades activas)
+        0, 0, 0,                    # x, y, z (float)
+        vx, vy, vz,                 # vx, vy, vz (float)
+        0, 0, 0,                    # afx, afy, afz (float)
+        0, 0                        # yaw, yaw_rate (float)
+    )
+
 def land(master):
     change_mode(master, "LAND")
     # Wait for the drone to land
