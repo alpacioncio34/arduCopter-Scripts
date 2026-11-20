@@ -118,59 +118,63 @@ class ManualControl:
     def forward_press(self):
         # TODO: Start moving forward
         #print("forward pressed")
-	    set_speed_local(master,5,0,0)
+	    set_speed_local(master,5,0,0,0)
 
     def forward_release(self):
         # TODO: Stop moving forward
         #print("forward released")
-	    set_speed_local(master,0,0,0)
+	    set_speed_local(master,0,0,0,0)
 
     def backward_press(self):
         # TODO: Start moving backward
         #print("backward pressed")
-        set_speed_local(master,-5,0,0)
+        set_speed_local(master,-5,0,0,0)
 
     def backward_release(self):
         # TODO: Stop moving backward
         #print("backward released")
-        set_speed_local(master,0,0,0)
+        set_speed_local(master,0,0,0,0)
 
     def left_press(self):
         # TODO: Start moving left
         #print("left pressed")
-        set_speed_local(master,0,-5,0)
+        set_speed_local(master,0,-5,0,0)
 
     def left_release(self):
         # TODO: Stop moving left
         #print("left released")
-        set_speed_local(master,0,0,0)
+        set_speed_local(master,0,0,0,0)
 
     def right_press(self):
         # TODO: Start moving right
         #print("right pressed")
-        set_speed_local(master,0,5,0)
+        set_speed_local(master,0,5,0,0)
 
     def right_release(self):
         # TODO: Stop moving right
         #print("right released")
-        set_speed_local(master,0,0,0)
+        set_speed_local(master,0,0,0,0)
 
     def yaw_left_press(self):
         # TODO: Start rotating counterclockwise
-        print("yaw_left pressed")
+        #print("yaw_left pressed")
+        set_speed_local(master,0,0,0,-5)
 
     def yaw_left_release(self):
         # TODO: Stop rotating
-        print("yaw_left released")
+        #print("yaw_left released")
+        set_speed_local(master,0,0,0,0)
 
     def yaw_right_press(self):
         # TODO: Start rotating clockwise
-        print("yaw_right pressed")
+        #print("yaw_right pressed")
+        set_speed_local(master,0,0,0,5)
 
     def yaw_right_release(self):
         # TODO: Stop rotating
-        print("yaw_right released")
-
+        #print("yaw_right released")
+        set_speed_local(master,0,0,0,0)
+        
     def up_press(self):
         # TODO: Start ascending
         print("up pressed")
