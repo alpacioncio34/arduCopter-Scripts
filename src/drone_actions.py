@@ -187,8 +187,9 @@ def set_speed(master,speed):
         0, 0, 0, 0
     )
 
-def set_speed_local(master,vx,vy,vz):
-	# TODO: Add parameters for direction and speed value
+# This function changes based on local origin
+def set_speed_local_origin(master,vx,vy,vz):
+
     master.mav.set_position_target_local_ned_send(
         0,                          # time_boot_ms (int)
         master.target_system,       # target_system (int)
@@ -200,6 +201,21 @@ def set_speed_local(master,vx,vy,vz):
         0, 0, 0,                    # afx, afy, afz (float)
         0, 0                        # yaw, yaw_rate (float)
     )
+
+VEL_ONLY          = 0x0DC7  # ignore pos, accel, yaw, yaw_rate
+VEL_AND_YAW_RATE  = 0x05C7  # ignore pos, accel, yaw; use yaw_rate
+
+def set_speed_local(master, vx, vy, vz, yaw_rate=0.0,
+                  frame=mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED):
+    master.mav.set_position_target_local_ned_send(
+        0,                                   # time_boot_ms (ignored)
+        master.target_system, master.target_component,
+        frame,
+        VEL_AND_YAW_RATE,
+        0, 0, 0,                             # position (ignored)
+        vx, vy, vz,                          # m/s
+        0, 0, 0,                             # accel (ignored)
+        0, yaw_rate)                         # yaw ignored, yaw_rate rad/s
 
 def land(master):
     change_mode(master, "LAND")
