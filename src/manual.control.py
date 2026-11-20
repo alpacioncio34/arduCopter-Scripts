@@ -174,22 +174,26 @@ class ManualControl:
         # TODO: Stop rotating
         #print("yaw_right released")
         set_speed_local(master,0,0,0,0)
-        
+
     def up_press(self):
         # TODO: Start ascending
-        print("up pressed")
+        #print("up pressed")
+        set_speed_local(master,0,0,-5,0)
 
     def up_release(self):
         # TODO: Stop ascending
-        print("up released")
+        #print("up released")
+        set_speed_local(master,0,0,0,0)
 
     def down_press(self):
         # TODO: Start descending
-        print("down pressed")
+        #print("down pressed")
+        set_speed_local(master,0,0,5,0)
 
     def down_release(self):
         # TODO: Stop descending
-        print("down released")
+        #print("down released")
+        set_speed_local(master,0,0,0,0)
 
 
 if __name__ == "__main__":
